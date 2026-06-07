@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { config } from '../utils/config.js'
 import type { ExtractedConversation } from '../scraper/conversation-extractor.js'
@@ -61,6 +61,31 @@ export class FileWriter {
     }
   }
 
+  writeStructuredJsonToPath(
+    conversation: ExtractedConversation,
+    structuredJsonPath: string
+  ): WrittenConversationFiles {
+    try {
+      const directory = dirname(structuredJsonPath)
+      if (!existsSync(directory)) {
+        mkdirSync(directory, { recursive: true })
+      }
+      writeFileSync(
+        structuredJsonPath,
+        JSON.stringify(this.formatConversationAsStructuredJson(conversation), null, 2),
+        'utf-8'
+      )
+      return {
+        primaryPath: structuredJsonPath,
+        structuredJsonPath,
+      }
+    } catch (error) {
+      throw new FileWriter.WriteError(
+        `Failed to write conversation ${conversation.id} to ${structuredJsonPath}: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  }
+
   private ensureRootExportDirectoryExists(): void {
     if (!existsSync(config.exportDir)) {
       mkdirSync(config.exportDir, { recursive: true })
@@ -113,6 +138,7 @@ export class FileWriter {
           message_index: message.index,
         },
       })),
+      artifacts: conversation.artifacts,
       markdown: conversation.content,
       raw: {
         api_response: conversation.rawApiResponse,

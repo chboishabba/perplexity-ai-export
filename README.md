@@ -103,13 +103,15 @@ cp .env.example .env
 
 ### Key Environment Variables
 
-- **HEADLESS**: Defaults to `false`. **Note:** Headless mode (`true`) is currently non-functional due to Cloudflare Turnstile protection on Perplexity.ai. Using headful mode allows you to complete any challenges manually if they appear.
+- **HEADLESS**: Defaults to `false` for interactive use. Headless mode can work for authenticated resolver-style pulls after browser/session state is valid. Use headful mode when a manual login or challenge must be completed.
 - **OLLAMA_URL**: Access point for your local AI engine (default: http://localhost:11434).
 - **OLLAMA_MODEL**: Cognitive model for RAG synthesis (e.g., deepseek-r1).
 - **OLLAMA_EMBED_MODEL**: Model for generating vector representations (e.g., nomic-embed-text).
 - **EXPORT_STRUCTURED_JSON**: Defaults to `true`. Writes canonical `itir.perplexity.thread.v1` JSON artifacts for downstream archive ingest.
 - **STRUCTURED_EXPORT_DIR**: Defaults to `EXPORT_DIR`. Set this to separate canonical JSON archives from sidecar files.
+- **PERPLEXITY_ARTIFACT_DIR**: Optional base directory for downloaded binary artifacts captured during live thread extraction. Defaults to `CHAT_ARCHIVE_ARTIFACT_DIR` or `/home/c/chat_archive_artifacts/perplexity`.
 - **EXPORT_MARKDOWN**: Defaults to `false`. Set to `true` to also write the previous Markdown files.
+- **PERPLEXITY_SCROLL_MODE**: Defaults to `step` for full-thread safety. `end` is a fast tail probe that can miss middle virtual-scroll pages; `hybrid` mostly steps with occasional end probes.
 - **ENABLE_VECTOR_SEARCH**: Defaults to `false`. Set to `true` to activate semantic and RAG layers. Current vector indexing reads Markdown exports, so enable `EXPORT_MARKDOWN=true` before rebuilding the vector index.
 
 ## Usage Guide
@@ -126,6 +128,7 @@ npm run dev
 - **Start scraper (Library)**: Initiates extraction. Authenticate manually if required.
   - **Note**: Due to the complexity of Perplexity's API and potential network fluctuations, it may be necessary to **run the scraper multiple times** to ensure all conversations are fully gathered. The system uses checkpoints to resume where it left off.
 - **Canonical archive**: The primary export is structured JSON. Treat Markdown and vector indexes as optional sidecars that can be regenerated from canonical thread/message records.
+- **Artifact capture**: Structured exports may include a top-level `artifacts` array with generated images/files captured from browser responses. Binaries are written outside the JSON archive, normally under `/home/c/chat_archive_artifacts/perplexity/<thread-id>/`, while the JSON records local paths, source URLs, sizes, and hashes for `chat-export-structurer` to index and hyperlink.
 - **SQLite/MyChatArchive ingest**: After exporting, tools such as `chat-export-structurer` can ingest the structured JSON into a canonical SQLite archive:
   ```bash
   python src/ingest.py \
@@ -134,7 +137,7 @@ npm run dev
     --account perplexity \
     --source-id perplexity_auto
   ```
-- **Bundle downloaded Perplexity Markdown**: If Perplexity's API only returns the first page of a long thread, place the downloaded `.md` chunks in a local folder and run:
+- **Bundle downloaded Perplexity Markdown**: Perplexity's own export/download button can be seriously incomplete, especially for long threads. Treat downloaded `.md` files as recovery evidence, not canonical truth. If you need to preserve them with provenance, place the downloaded chunks in a local folder and run:
   ```bash
   npm run bundle:perplexity-downloads -- \
     --input /path/to/downloaded/perplexity-markdown \
@@ -142,7 +145,7 @@ npm run dev
     --thread-id "<perplexity-thread-uuid>" \
     --out exports-downloads/thread.download.itir.perplexity.json
   ```
-  Then ingest that JSON with `chat-export-structurer --format perplexity --account perplexity` so the recovered turns attach to the same canonical Perplexity thread.
+  Then ingest that JSON with `chat-export-structurer --format perplexity --account perplexity` so the recovered turns attach to the same Perplexity thread. Prefer a verified full app-API capture when available.
 - **Search conversations**: Interface with your history using various modes:
   - **Auto**: Heuristic selection between semantic and exact search.
   - **Semantic**: Fuzzy matching via high-dimensional vector space.

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- Added live artifact capture for Perplexity thread exports. Browser response
+  images/binaries are downloaded to a configurable artifact directory and
+  emitted in structured `itir.perplexity.thread.v1` JSON as top-level
+  `artifacts` refs with local path, source URL, MIME type, size, and SHA-256.
+- Relaxed saved-auth validation so existing signed-in browser storage is reused
+  instead of forcing repeated MFA/SSO when the settings-page probe is slow or
+  inconclusive.
+
 # 1.1.0 (2026-03-15)
 
 ### Bug Fixes

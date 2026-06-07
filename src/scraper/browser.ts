@@ -1,5 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { config } from '../utils/config.js'
 import { logger } from '../utils/logger.js'
 import { confirm } from '@inquirer/prompts'
@@ -39,10 +39,12 @@ export class BrowserManager {
 
   async launch(): Promise<Page> {
     try {
-      const isSavedAuthValid = this.checkIfSavedAuthenticationIsFresh(config.authStoragePath)
+      const hasSavedAuth = existsSync(config.authStoragePath)
 
-      if (isSavedAuthValid) {
-        // Try starting in requested headless mode directly
+      if (hasSavedAuth) {
+        // Try the persisted browser state first. Perplexity sessions can remain
+        // valid after the local file is older than a day, and discarding them
+        // forces unnecessary SSO/MFA loops.
         await this.launchBrowser(config.headless)
         await this.initializeBrowserContext()
         await this.navigateToSettingsPage()
@@ -54,9 +56,9 @@ export class BrowserManager {
         }
 
         logger.warn(
-          'Saved authentication expired or invalid. Restarting in headful mode for login...'
+          'Saved authentication could not be verified on settings; trying target URL anyway.'
         )
-        await this.close()
+        return this.getActivePage()
       }
 
       // Need login: launch headful
@@ -94,7 +96,7 @@ export class BrowserManager {
     try {
       this.browserInstance = await chromium.launch({
         headless: headless === 'new' ? true : headless,
-        args: ['--disable-blink-features=AutomationControlled'],
+        args: ['--disable-blink-features=AutomationControlled', '--disable-gpu'],
       })
     } catch (_error) {
       throw new BrowserManager.BrowserLaunchError(
@@ -106,9 +108,7 @@ export class BrowserManager {
   private async initializeBrowserContext(): Promise<void> {
     if (!this.browserInstance) throw new BrowserManager.ContextError('Browser not initialized')
 
-    const isSavedAuthValid = this.checkIfSavedAuthenticationIsFresh(config.authStoragePath)
-
-    if (isSavedAuthValid) {
+    if (existsSync(config.authStoragePath)) {
       logger.info('Loading saved authentication state...')
       try {
         const storageStateData = JSON.parse(readFileSync(config.authStoragePath, 'utf-8'))
@@ -120,22 +120,7 @@ export class BrowserManager {
         this.activeContext = await this.browserInstance.newContext()
       }
     } else {
-      if (existsSync(config.authStoragePath)) {
-        logger.info('Saved authentication is older than 1 day, discarding.')
-      }
       this.activeContext = await this.browserInstance.newContext()
-    }
-  }
-
-  private checkIfSavedAuthenticationIsFresh(path: string): boolean {
-    if (!existsSync(path)) return false
-    try {
-      const fileStats = statSync(path)
-      const fileAgeInMs = Date.now() - fileStats.mtimeMs
-      const twentyFourHoursInMs = 24 * 60 * 60 * 1000
-      return fileAgeInMs < twentyFourHoursInMs
-    } catch (_error) {
-      return false
     }
   }
 
@@ -175,9 +160,18 @@ export class BrowserManager {
     })
 
     const perplexitySettingsUrl = 'https://www.perplexity.ai/settings'
-    await this.activePage.goto(perplexitySettingsUrl, {
-      waitUntil: 'networkidle',
-    })
+    await this.activePage
+      .goto(perplexitySettingsUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 10000,
+      })
+      .catch((error) => {
+        logger.warn(
+          `Settings recheck navigation did not fully settle: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        )
+      })
 
     const isLoginSuccessfulNow = await this.verifyLoginStatus(this.activePage)
     if (!isLoginSuccessfulNow) {
@@ -214,8 +208,22 @@ export class BrowserManager {
     }
 
     const currentUrl = page.url()
-    const authenticatedUrlPaths = ['/settings', '/library', '/collections', '/account/details']
-    return authenticatedUrlPaths.some((path) => currentUrl.includes(path))
+    if (currentUrl.includes('/account/details')) {
+      return true
+    }
+
+    if (currentUrl.includes('/settings')) {
+      const settingsText = await page
+        .locator('body')
+        .innerText({ timeout: 2000 })
+        .catch(() => '')
+      return (
+        visibleLoginControlCount === 0 ||
+        /account|profile|subscription|settings/i.test(settingsText)
+      )
+    }
+
+    return false
   }
 
   private async persistAuthenticationState(): Promise<void> {

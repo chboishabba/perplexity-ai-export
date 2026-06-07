@@ -88,7 +88,9 @@ export class CommandHandler {
           await this.conversationSearchOrchestrator.validateVectorSearch()
         } catch (_error) {
           if (searchMode === 'auto') {
-            logger.warn('Ollama is not available (required for semantic features). Falling back to Exact Text search (ripgrep).')
+            logger.warn(
+              'Ollama is not available (required for semantic features). Falling back to Exact Text search (ripgrep).'
+            )
             searchMode = 'rg'
           } else {
             const errorMessage = _error instanceof Error ? _error.message : String(_error)

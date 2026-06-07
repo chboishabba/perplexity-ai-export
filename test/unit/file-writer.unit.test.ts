@@ -30,6 +30,17 @@ function sampleConversation(): ExtractedConversation {
         entryIndex: 0,
       },
     ],
+    artifacts: [
+      {
+        artifact_id: '0001-deadbeef',
+        kind: 'image',
+        mime_type: 'image/png',
+        source_url: 'https://example.test/image.png',
+        local_path: '/home/c/chat_archive_artifacts/perplexity/thread-123/0001-deadbeef.png',
+        size_bytes: 1234,
+        sha256: 'deadbeef',
+      },
+    ],
     rawApiResponse: { entries: [{ query_str: 'What is the plan?' }] },
     rawEntries: [{ query_str: 'What is the plan?' }],
   }
@@ -63,6 +74,8 @@ describe('FileWriter', () => {
     expect(artifact.url).toBe('https://www.perplexity.ai/search/thread-123')
     expect(artifact.messages).toHaveLength(2)
     expect(artifact.messages[0].source_message_id).toBe('1-user')
+    expect(artifact.artifacts).toHaveLength(1)
+    expect(artifact.artifacts[0].local_path).toContain('chat_archive_artifacts')
     expect(artifact.raw.entries).toEqual([{ query_str: 'What is the plan?' }])
   })
 
@@ -79,5 +92,20 @@ describe('FileWriter', () => {
     expect(markdown).toContain('# Test Thread')
     expect(markdown).toContain('**Space:** Research Space')
     expect(markdown).toContain('## What is the plan?')
+  })
+
+  it('writes structured ITIR JSON to an explicit resolver path', () => {
+    const writer = new FileWriter()
+    const outPath = join(root, 'resolver', 'thread-123.itir.perplexity.json')
+    const written = writer.writeStructuredJsonToPath(sampleConversation(), outPath)
+
+    expect(written.primaryPath).toBe(outPath)
+    expect(written.structuredJsonPath).toBe(outPath)
+    expect(written.markdownPath).toBeUndefined()
+    expect(existsSync(outPath)).toBe(true)
+
+    const artifact = JSON.parse(readFileSync(outPath, 'utf-8'))
+    expect(artifact.schema).toBe('itir.perplexity.thread.v1')
+    expect(artifact.source_thread_id).toBe('thread-123')
   })
 })
